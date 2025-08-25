@@ -5,43 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { OAuthProviderTestWrapper as OAuthProvider } from '../test-helpers';
-import type { Storage } from '../../types';
-
-class TestStorage implements Storage {
-  private store = new Map<string, any>();
-
-  async get(key: string): Promise<string | null>;
-  async get<T>(key: string, options: { type: 'json' }): Promise<T | null>;
-  async get(key: string, options?: { type?: string }): Promise<any> {
-    const value = this.store.get(key);
-    if (!value) return null;
-    
-    if (options?.type === 'json') {
-      return typeof value === 'string' ? JSON.parse(value) : value;
-    }
-    return value;
-  }
-
-  async put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
-    this.store.set(key, value);
-  }
-
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
-  }
-
-  async list(options?: { prefix?: string }): Promise<{ keys: Array<{ name: string }> }> {
-    const keys = Array.from(this.store.keys())
-      .filter(k => !options?.prefix || k.startsWith(options.prefix))
-      .map(name => ({ name }));
-    return { keys };
-  }
-
-  clear() {
-    this.store.clear();
-  }
-}
+import { OAuthProviderTestWrapper as OAuthProvider, TestStorage } from '../test-helpers';
 
 describe('OAuth 2.1 Compliance', () => {
   let provider: OAuthProvider;
@@ -68,7 +32,7 @@ describe('OAuth 2.1 Compliance', () => {
         redirect_uris: ['http://localhost:3000/callback'],
       }),
     });
-    testClient = await response.json();
+    testClient = await response.json() as any;
   });
 
   describe('§4.1.1 - Authorization Request', () => {
@@ -82,8 +46,11 @@ describe('OAuth 2.1 Compliance', () => {
       const response = await app.request(url.toString());
       
       expect(response.status).toBe(400);
-      const error = await response.json();
-      expect(error.error).toBe('invalid_redirect_uri');
+      // Invalid redirect_uri returns HTML error page (no redirect per OAuth 2.1)
+      expect(response.headers.get('content-type')).toContain('text/html');
+      const html = await response.text();
+      expect(html).toContain('Invalid Request');
+      expect(html).toContain('redirect URI provided does not match');
     });
 
     it('should reject implicit grant (response_type=token)', async () => {
@@ -220,7 +187,7 @@ describe('OAuth 2.1 Compliance', () => {
           token_endpoint_auth_method: 'none',
         }),
       });
-      const publicClient = await pubResponse.json();
+      const publicClient = await pubResponse.json() as any;
 
       // Try authorization without PKCE
       const url = new URL('http://localhost:8787/authorize');
@@ -230,10 +197,11 @@ describe('OAuth 2.1 Compliance', () => {
 
       const response = await app.request(url.toString());
       
-      expect(response.status).toBe(400);
-      const error = await response.json();
-      expect(error.error).toBe('invalid_request');
-      expect(error.error_description).toContain('PKCE required');
+      expect(response.status).toBe(302);
+      const location = response.headers.get('location');
+      expect(location).toBeTruthy();
+      expect(location).toContain('error=invalid_request');
+      expect(location).toContain('PKCE+is+required+for+public+clients');
     });
 
     it('should validate S256 code challenge correctly', async () => {
@@ -283,8 +251,10 @@ describe('OAuth 2.1 Compliance', () => {
           userId: 'user-1',
           scope: 'read',
           code: authCode,
+          redirectUri: 'http://localhost:3000/callback',
           // No codeChallenge
           expiresAt: Date.now() + 600000,
+          createdAt: Date.now() - 1000,
         })
       );
 
@@ -301,20 +271,28 @@ describe('OAuth 2.1 Compliance', () => {
         }).toString(),
       });
 
-      // The provider should ignore the verifier if PKCE wasn't used
-      expect(response.status).toBe(200);
+      // Should reject code_verifier when PKCE challenge was not used
+      expect(response.status).toBe(400);
+      const error = await response.json() as any;
+      expect(error.error).toBe('invalid_grant');
+      expect(error.error_description).toContain('code_verifier provided but no PKCE challenge was used');
     });
   });
 
   describe('§6.1 - Refresh Token', () => {
     it('should rotate refresh tokens on use', async () => {
       const refreshToken = 'initial-refresh-token';
+      // In strict mode, refresh tokens are hashed
+      const { hashToken } = await import('../../lib/utils');
+      const refreshTokenHash = await hashToken(refreshToken);
       await storage.put(
-        `refresh:${refreshToken}`,
+        `refresh:${refreshTokenHash}`,
         JSON.stringify({
           userId: 'user-1',
           clientId: testClient.client_id,
           scope: 'read',
+          createdAt: Date.now() - 1000, // Required field
+          expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 days
         })
       );
 
@@ -336,19 +314,23 @@ describe('OAuth 2.1 Compliance', () => {
       expect(tokens.refresh_token).toBeDefined();
       expect(tokens.refresh_token).not.toBe(refreshToken);
       
-      // Old refresh token should be deleted
-      const oldToken = await storage.get(`refresh:${refreshToken}`, { type: 'json' });
-      expect(oldToken).toBeNull();
+      // Old refresh token should be invalidated (marked as rotated)
+      const oldToken = await storage.get(`refresh:${refreshTokenHash}`, { type: 'json' }) as any;
+      expect(oldToken?.isRotated).toBe(true);
     });
 
     it('should reject reused refresh tokens', async () => {
       const refreshToken = 'one-time-refresh';
+      const { hashToken } = await import('../../lib/utils');
+      const refreshTokenHash = await hashToken(refreshToken);
       await storage.put(
-        `refresh:${refreshToken}`,
+        `refresh:${refreshTokenHash}`,
         JSON.stringify({
           userId: 'user-1',
           clientId: testClient.client_id,
           scope: 'read',
+          createdAt: Date.now() - 1000,
+          expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
         })
       );
 

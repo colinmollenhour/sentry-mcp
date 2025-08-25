@@ -4,39 +4,9 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
-import { OAuthProviderTestWrapper as OAuthProvider } from '../test-helpers';
-import type { Storage, Client } from '../../types';
+import { OAuthProviderTestWrapper as OAuthProvider, TestStorage } from '../test-helpers';
+import type { Client } from '../../types';
 
-class TestStorage implements Storage {
-  private store = new Map<string, any>();
-
-  async get(key: string): Promise<string | null>;
-  async get<T>(key: string, options: { type: 'json' }): Promise<T | null>;
-  async get(key: string, options?: { type?: string }): Promise<any> {
-    const value = this.store.get(key);
-    if (!value) return null;
-    
-    if (options?.type === 'json') {
-      return typeof value === 'string' ? JSON.parse(value) : value;
-    }
-    return value;
-  }
-
-  async put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
-    this.store.set(key, value);
-  }
-
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
-  }
-
-  async list(options?: { prefix?: string }): Promise<{ keys: Array<{ name: string }> }> {
-    const keys = Array.from(this.store.keys())
-      .filter(k => !options?.prefix || k.startsWith(options.prefix))
-      .map(name => ({ name }));
-    return { keys };
-  }
-}
 
 describe('OAuth 2.1 Redirect URI Security', () => {
   let storage: TestStorage;

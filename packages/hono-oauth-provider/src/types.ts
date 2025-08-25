@@ -202,6 +202,15 @@ export interface CSRFData {
 }
 
 /**
+ * Grant-to-tokens mapping for grant family invalidation
+ */
+export interface GrantTokenMapping {
+  accessToken: string;
+  refreshToken: string;
+  createdAt: number;
+}
+
+/**
  * Token response format
  * 
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.1 - Successful Response

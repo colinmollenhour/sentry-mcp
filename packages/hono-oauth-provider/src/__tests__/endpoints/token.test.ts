@@ -11,46 +11,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import { OAuthProvider as OAuthProviderFunc } from '../../index';
-import { OAuthProviderTestWrapper as OAuthProvider } from '../test-helpers';
+import { OAuthProviderTestWrapper as OAuthProvider, TestStorage } from '../test-helpers';
 import { hashClientSecret } from '../../lib/crypto';
 import { hashToken } from '../../lib/utils';
 
-class MemoryStorage {
-  private store = new Map<string, any>();
-  
-  async get(key: string): Promise<string | null>;
-  async get<T>(key: string, options: { type: 'json' }): Promise<T | null>;
-  async get(key: string, options?: { type?: string }): Promise<any> {
-    const val = this.store.get(key);
-    if (!val) return null;
-    return options?.type === 'json' && typeof val === 'string' 
-      ? JSON.parse(val) 
-      : val;
-  }
-  
-  async put(key: string, value: string): Promise<void> {
-    this.store.set(key, value);
-  }
-  
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
-  }
-  
-  async list(options?: { prefix?: string }): Promise<{ keys: Array<{ name: string }> }> {
-    const keys = Array.from(this.store.keys())
-      .filter(k => !options?.prefix || k.startsWith(options.prefix))
-      .map(name => ({ name }));
-    return { keys };
-  }
-}
-
 describe('Token Endpoint', () => {
-  let storage: MemoryStorage;
+  let storage: TestStorage;
   let provider: OAuthProvider;
   let app: Hono;
 
   beforeEach(async () => {
-    storage = new MemoryStorage();
+    storage = new TestStorage();
     provider = new OAuthProvider({
       storage,
       issuer: 'http://localhost:8787',

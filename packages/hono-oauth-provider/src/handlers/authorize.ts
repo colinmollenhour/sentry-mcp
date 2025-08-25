@@ -10,7 +10,7 @@
 
 import type { Context } from 'hono';
 import { z } from 'zod';
-import type { Storage, Client, Grant, OAuth21Config } from '../types';
+import type { Storage, Client, Grant, CSRFData, OAuth21Config } from '../types';
 import { escapeHtml, generateSecureToken, generateCSRFToken } from '../lib/utils';
 import { ConsentManager } from '../core/consent';
 import { encryptContextForStorage } from '../lib/crypto-context';
@@ -80,6 +80,8 @@ export class AuthorizeHandler {
         url.searchParams.set('error', 'invalid_request');
         url.searchParams.set('error_description', 'PKCE is required for public clients');
         if (params.state) url.searchParams.set('state', params.state);
+        // Add issuer identification parameter per RFC 9207
+        url.searchParams.set('iss', this.config.issuer);
         return c.redirect(url.toString());
       }
 
@@ -143,7 +145,7 @@ export class AuthorizeHandler {
       return c.json({ error: 'invalid_request', error_description: 'Missing CSRF token' }, 400);
     }
     
-    const csrfData = await this.storage.get<any>(
+    const csrfData = await this.storage.get<CSRFData>(
       `csrf:${csrfToken}`,
       { type: 'json' }
     );
@@ -170,6 +172,8 @@ export class AuthorizeHandler {
       const state = formData.get('state') as string;
       url.searchParams.set('error', 'access_denied');
       if (state) url.searchParams.set('state', state);
+      // Add issuer identification parameter per RFC 9207
+      url.searchParams.set('iss', this.config.issuer);
       return c.redirect(url.toString());
     }
 
@@ -245,6 +249,10 @@ export class AuthorizeHandler {
     const responseUrl = new URL(params.redirect_uri);
     responseUrl.searchParams.set('code', code);
     if (params.state) responseUrl.searchParams.set('state', params.state);
+    
+    // Add issuer identification parameter per RFC 9207
+    // @see https://datatracker.ietf.org/doc/html/rfc9207 - OAuth 2.0 Authorization Server Issuer Identification
+    responseUrl.searchParams.set('iss', this.config.issuer);
     
     return c.redirect(responseUrl.toString());
   }

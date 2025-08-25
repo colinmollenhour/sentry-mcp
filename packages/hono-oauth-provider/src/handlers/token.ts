@@ -10,7 +10,7 @@
 
 import type { Context } from 'hono';
 import { z } from 'zod';
-import type { Storage, Client, Grant, RefreshTokenData, OAuth21Config } from '../types';
+import type { Storage, Client, Grant, RefreshTokenData, TokenData, GrantTokenMapping, OAuth21Config } from '../types';
 import { generateSecureToken, generateStructuredToken, hashToken, verifyCSRFToken } from '../lib/utils';
 import { verifyClientSecret } from '../lib/crypto';
 import { decryptContextFromStorage, encryptContextForStorage } from '../lib/crypto-context';
@@ -278,7 +278,7 @@ export class TokenHandler {
     });
 
     // Prepare token data - store everything together
-    const tokenData: any = {
+    const tokenData: TokenData = {
       userId: grantData.userId,
       clientId: grantData.clientId,
       scope: grantData.scope,
@@ -286,7 +286,7 @@ export class TokenHandler {
       expiresAt: Date.now() + (accessTokenTTL * 1000),
     };
     
-    const refreshData: any = {
+    const refreshData: RefreshTokenData = {
       userId: grantData.userId,
       clientId: grantData.clientId,
       scope: grantData.scope,
@@ -387,6 +387,15 @@ export class TokenHandler {
       return c.json({ 
         error: 'invalid_grant',
         error_description: 'Refresh token not found or expired'
+      }, 400);
+    }
+
+    // Check if refresh token has been rotated (reuse detection)
+    // @see https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-10#section-6.1 - Refresh token rotation
+    if (refreshData.isRotated && !isPreviousToken) {
+      return c.json({ 
+        error: 'invalid_grant',
+        error_description: 'Refresh token has been rotated and is no longer valid'
       }, 400);
     }
 
@@ -499,7 +508,7 @@ export class TokenHandler {
       refreshTokenHash;
 
     // Prepare token data with optional encrypted context
-    const tokenData: any = {
+    const tokenData: TokenData = {
       userId: refreshData.userId,
       clientId: refreshData.clientId,
       scope: refreshData.scope,
@@ -507,7 +516,7 @@ export class TokenHandler {
       expiresAt: Date.now() + (accessTokenTTL * 1000),
     };
     
-    const newRefreshData: any = {
+    const newRefreshData: RefreshTokenData = {
       ...refreshData,
       expiresAt: Date.now() + REFRESH_TOKEN_EXPIRY_MS,
       createdAt: grantCreatedAt,
@@ -596,7 +605,7 @@ export class TokenHandler {
     console.log('[OAuth] Invalidating grant family:', grantId);
     
     try {
-      const tokenMapping = await this.storage.get<any>(
+      const tokenMapping = await this.storage.get<GrantTokenMapping>(
         `grant-tokens:${grantId}`,
         { type: 'json' }
       );

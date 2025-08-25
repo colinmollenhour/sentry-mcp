@@ -7,47 +7,18 @@
  * @packageDocumentation
  */
 
-// Export the OAuth provider and helpers
-export { 
-  OAuthProvider,
-  requireOAuthScope 
-} from './oauth-provider';
+// Core OAuth provider middleware
+export { OAuthProvider } from './oauth-provider';
 
-// Export types
+// Storage adapters for different environments
+export { MemoryStorage, KVStorage } from './storage';
+
+// Essential types for configuration
 export type {
   OAuth21Config,
   Storage,
-  Client,
-  Grant,
-  TokenData,
-  RefreshTokenData,
+  TokenExchangeCallbackOptions,
+  TokenExchangeCallbackResult,
   TokenResponse,
   ErrorResponse
 } from './types';
-
-// Export consent manager for advanced usage
-export { ConsentManager } from './core/consent';
-export type { UserConsent, ConsentOptions } from './core/consent';
-
-// Export crypto utilities for client implementations
-export { 
-  generateClientSecret,
-  hashClientSecret,
-  verifyClientSecret 
-} from './lib/crypto';
-
-// Export validation utilities
-export {
-  ClientRegistrationSchema,
-  sanitizeClientMetadata,
-  validateRedirectUri
-} from './lib/validation';
-
-// Export general utilities
-export {
-  generateSecureToken,
-  generateCSRFToken,
-  verifyCSRFToken,
-  escapeHtml
-} from './lib/utils';
-
